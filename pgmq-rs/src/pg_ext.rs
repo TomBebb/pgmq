@@ -310,12 +310,27 @@ impl PGMQueueExt {
         vt: i32,
         executor: E,
     ) -> Result<Option<Message<T>>, PgmqError> {
+        self.read_with_cxn_raw(queue_name, vt, executor, None).await
+    }
+
+    async fn read_with_cxn_raw<
+        'c,
+        E: sqlx::Executor<'c, Database = Postgres>,
+        T: for<'de> Deserialize<'de>,
+    >(
+        &self,
+        queue_name: &str,
+        vt: i32,
+        executor: E,
+        filter: Option<&str>,
+    ) -> Result<Option<Message<T>>, PgmqError> {
         check_input(queue_name)?;
         let row = sqlx::query!(
-            "SELECT * from pgmq.read($1::text, $2, $3)",
+            "SELECT * from pgmq.read($1::text, $2, $3, $4)",
             queue_name,
             vt,
-            1
+            1,
+            serde_json::Value::from(filter.unwrap_or("{}"))
         )
         .fetch_optional(executor)
         .await?;
@@ -346,6 +361,21 @@ impl PGMQueueExt {
         vt: i32,
     ) -> Result<Option<Message<T>>, PgmqError> {
         self.read_with_cxn(queue_name, vt, &self.connection).await
+    }
+
+    pub async fn read_filtered<T: for<'de> Deserialize<'de>, F: Serialize>(
+        &self,
+        queue_name: &str,
+        vt: i32,
+        filter: F,
+    ) -> Result<Option<Message<T>>, PgmqError> {
+        self.read_with_cxn_raw(
+            queue_name,
+            vt,
+            &self.connection,
+            Some(&serde_json::to_string(filter)?),
+        )
+        .await
     }
 
     pub async fn read_batch_with_poll_with_cxn<
