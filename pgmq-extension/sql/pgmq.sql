@@ -58,7 +58,7 @@ CREATE FUNCTION pgmq.read(
     queue_name TEXT,
     vt INTEGER,
     qty INTEGER,
-    filter JSONB DEFAULT "{}"
+    filter JSON DEFAULT "{}"::json
 )
 RETURNS SETOF pgmq.message_record AS $$
 DECLARE
