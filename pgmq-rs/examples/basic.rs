@@ -27,7 +27,6 @@ async fn main() -> Result<(), PgmqError> {
         .send(&my_queue, &json_message)
         .await
         .expect("Failed to enqueue message");
-
     // Messages can also be sent from structs
     #[derive(Serialize, Debug, Deserialize)]
     struct MyMessage {
@@ -153,5 +152,68 @@ async fn main() -> Result<(), PgmqError> {
         println!("Deleted message {}", message.msg_id);
     }
 
+    #[derive(Serialize, Deserialize, Debug)]
+    enum LogLevel {
+        Error,
+        Warn,
+        Information,
+        Debug,
+    }
+    #[derive(Serialize, Deserialize, Debug)]
+    struct LogMessage {
+        level: LogLevel,
+        message: String,
+    }
+    let log_queue = "log".to_owned();
+    queue
+        .create(&log_queue)
+        .await
+        .expect("Failed to create queue");
+
+    println!("Inserting logs");
+    queue
+        .send_batch(
+            &log_queue,
+            &[
+                LogMessage {
+                    message: "Error Demo".into(),
+                    level: LogLevel::Error,
+                },
+                LogMessage {
+                    message: "Error Demo 33".into(),
+                    level: LogLevel::Error,
+                },
+                LogMessage {
+                    message: "Debug Demo".into(),
+                    level: LogLevel::Debug,
+                },
+                LogMessage {
+                    message: "Debug Demo 2".into(),
+                    level: LogLevel::Debug,
+                },
+                LogMessage {
+                    message: "Info Demo".into(),
+                    level: LogLevel::Information,
+                },
+            ],
+        )
+        .await
+        .expect("Failed to enqueue message");
+
+    #[derive(Debug, Serialize, Deserialize)]
+    struct LogLevelWrapper {
+        level: LogLevel,
+    }
+    let error_logs = queue.read_filtered_batch::<LogMessage, LogLevelWrapper>(&log_queue, None, 12, &LogLevelWrapper {
+        level: LogLevel::Error
+    }).await.expect("Failed to read log messages");
+
+    println!("Error Logs: {:?}", error_logs);
+
+    let msgs = queue
+        .read_batch::<LogMessage>(&log_queue, None, 12)
+        .await
+        .expect("Failed to read log messages");
+    println!("Logs: {:?}", msgs);
     Ok(())
 }

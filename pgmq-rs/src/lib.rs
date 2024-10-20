@@ -148,10 +148,7 @@
 #![doc(html_root_url = "https://docs.rs/pgmq/")]
 
 use serde::{Deserialize, Serialize};
-use sqlx::error::Error;
-use sqlx::postgres::PgRow;
-use sqlx::types::chrono::Utc;
-use sqlx::{Pool, Postgres, Row};
+use sqlx::{error::Error, postgres::PgRow, types::chrono::Utc, Pool, Postgres, Row};
 
 pub mod errors;
 pub mod pg_ext;
@@ -162,9 +159,8 @@ mod query;
 
 pub use errors::PgmqError;
 pub use pg_ext::PGMQueueExt;
-pub use types::Message;
-
 use std::time::Duration;
+pub use types::Message;
 
 /// Main controller for interacting with a queue.
 #[derive(Clone, Debug)]
@@ -530,7 +526,29 @@ impl PGMQueue {
             None => types::VT_DEFAULT,
         };
         let limit = types::READ_LIMIT_DEFAULT;
-        let query = &query::read(queue_name, vt_, limit)?;
+        let query = &query::read(queue_name, vt_, limit, None)?;
+        let message = util::fetch_one_message::<T>(query, &self.connection).await?;
+        Ok(message)
+    }
+
+    pub async fn read_filtered<T: for<'de> Deserialize<'de>, F: Serialize>(
+        &self,
+        queue_name: &str,
+        vt: Option<i32>,
+        filter: &F,
+    ) -> Result<Option<Message<T>>, PgmqError> {
+        // map vt or default VT
+        let vt_ = match vt {
+            Some(t) => t,
+            None => types::VT_DEFAULT,
+        };
+        let limit = types::READ_LIMIT_DEFAULT;
+        let query = &query::read(
+            queue_name,
+            vt_,
+            limit,
+            Some(&serde_json::to_string(filter)?),
+        )?;
         let message = util::fetch_one_message::<T>(query, &self.connection).await?;
         Ok(message)
     }
@@ -611,7 +629,29 @@ impl PGMQueue {
             Some(t) => t,
             None => types::VT_DEFAULT,
         };
-        let query = &query::read(queue_name, vt_, num_msgs)?;
+        let query = &query::read(queue_name, vt_, num_msgs, None)?;
+        let messages = fetch_messages::<T>(query, &self.connection).await?;
+        Ok(messages)
+    }
+
+    pub async fn read_filtered_batch<T: for<'de> Deserialize<'de>, F: Serialize>(
+        &self,
+        queue_name: &str,
+        vt: Option<i32>,
+        num_msgs: i32,
+        filter: &F,
+    ) -> Result<Option<Vec<Message<T>>>, PgmqError> {
+        // map vt or default VT
+        let vt_ = match vt {
+            Some(t) => t,
+            None => types::VT_DEFAULT,
+        };
+        let query = &query::read(
+            queue_name,
+            vt_,
+            num_msgs,
+            Some(&serde_json::to_string(filter)?),
+        )?;
         let messages = fetch_messages::<T>(query, &self.connection).await?;
         Ok(messages)
     }
@@ -637,7 +677,7 @@ impl PGMQueue {
         let poll_interval_ = poll_interval.unwrap_or(types::POLL_INTERVAL_DEFAULT);
         let start_time = std::time::Instant::now();
         loop {
-            let query = &query::read(queue_name, vt_, max_batch_size)?;
+            let query = &query::read(queue_name, vt_, max_batch_size, None)?;
             let messages = fetch_messages::<T>(query, &self.connection).await?;
             match messages {
                 Some(m) => {
