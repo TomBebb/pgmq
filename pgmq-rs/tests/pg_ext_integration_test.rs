@@ -1,5 +1,7 @@
-use pgmq::types::{ARCHIVE_PREFIX, PGMQ_SCHEMA, QUEUE_PREFIX};
-use pgmq::util::connect;
+use pgmq::{
+    types::{ARCHIVE_PREFIX, PGMQ_SCHEMA, QUEUE_PREFIX},
+    util::connect,
+};
 use rand::Rng;
 use serde::{Deserialize, Serialize};
 use sqlx::{Pool, Postgres, Row};

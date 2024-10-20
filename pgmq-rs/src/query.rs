@@ -1,9 +1,10 @@
 //! Query constructors
 
-use crate::errors::PgmqError;
-use crate::types::{ARCHIVE_PREFIX, PGMQ_SCHEMA, QUEUE_PREFIX};
-use crate::util::{check_input, CheckedName};
-
+use crate::{
+    errors::PgmqError,
+    types::{ARCHIVE_PREFIX, PGMQ_SCHEMA, QUEUE_PREFIX},
+    util::{check_input, CheckedName},
+};
 use sqlx::types::chrono::Utc;
 
 pub fn init_queue_client_only(name: &str, is_unlogged: bool) -> Result<Vec<String>, PgmqError> {
@@ -171,15 +172,20 @@ pub fn enqueue(name: &str, messages_num: usize, delay: &u64) -> Result<String, P
     ))
 }
 
-pub fn read(name: &str, vt: i32, limit: i32) -> Result<String, PgmqError> {
+pub fn read(name: &str, vt: i32, limit: i32, filter: Option<&str>) -> Result<String, PgmqError> {
     check_input(name)?;
+    let mut filter_query = String::from("vt <= clock_timestamp()");
+    if let Some(filter) = filter {
+        filter_query = format!("{filter_query} AND message @> '{filter}'::jsonb");
+    }
+    println!("Filter: {filter_query}");
     Ok(format!(
         "
     WITH cte AS
         (
             SELECT msg_id
             FROM {PGMQ_SCHEMA}.{QUEUE_PREFIX}_{name}
-            WHERE vt <= clock_timestamp()
+            WHERE {filter_query}
             ORDER BY msg_id ASC
             LIMIT {limit}
             FOR UPDATE SKIP LOCKED

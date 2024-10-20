@@ -1,10 +1,11 @@
-use crate::errors::PgmqError;
-use crate::types::{Message, QUEUE_PREFIX};
-use crate::util::{check_input, connect};
+use crate::{
+    errors::PgmqError,
+    types::{Message, QUEUE_PREFIX},
+    util::{check_input, connect},
+};
 use log::info;
 use serde::{Deserialize, Serialize};
-use sqlx::types::chrono::Utc;
-use sqlx::{Pool, Postgres};
+use sqlx::{types::chrono::Utc, Pool, Postgres};
 
 const DEFAULT_POLL_TIMEOUT_S: i32 = 5;
 const DEFAULT_POLL_INTERVAL_MS: i32 = 250;
@@ -310,12 +311,27 @@ impl PGMQueueExt {
         vt: i32,
         executor: E,
     ) -> Result<Option<Message<T>>, PgmqError> {
+        self.read_with_cxn_raw(queue_name, vt, executor, None).await
+    }
+
+    async fn read_with_cxn_raw<
+        'c,
+        E: sqlx::Executor<'c, Database = Postgres>,
+        T: for<'de> Deserialize<'de>,
+    >(
+        &self,
+        queue_name: &str,
+        vt: i32,
+        executor: E,
+        filter: Option<&str>,
+    ) -> Result<Option<Message<T>>, PgmqError> {
         check_input(queue_name)?;
         let row = sqlx::query!(
-            "SELECT * from pgmq.read($1::text, $2, $3)",
+            "SELECT * from pgmq.read($1::text, $2, $3, $4)",
             queue_name,
             vt,
-            1
+            1,
+            serde_json::Value::from(filter.unwrap_or("{}"))
         )
         .fetch_optional(executor)
         .await?;
@@ -348,6 +364,21 @@ impl PGMQueueExt {
         self.read_with_cxn(queue_name, vt, &self.connection).await
     }
 
+    pub async fn read_filtered<T: for<'de> Deserialize<'de>, F: Serialize>(
+        &self,
+        queue_name: &str,
+        vt: i32,
+        filter: &F,
+    ) -> Result<Option<Message<T>>, PgmqError> {
+        self.read_with_cxn_raw(
+            queue_name,
+            vt,
+            &self.connection,
+            Some(&serde_json::to_string(filter)?),
+        )
+        .await
+    }
+
     pub async fn read_batch_with_poll_with_cxn<
         'c,
         E: sqlx::Executor<'c, Database = Postgres>,
@@ -361,17 +392,43 @@ impl PGMQueueExt {
         poll_interval: Option<std::time::Duration>,
         executor: E,
     ) -> Result<Option<Vec<Message<T>>>, PgmqError> {
+        self.read_batch_with_poll_with_cxn_raw(
+            queue_name,
+            vt,
+            max_batch_size,
+            poll_timeout,
+            poll_interval,
+            None,
+            executor,
+        )
+        .await
+    }
+    pub async fn read_batch_with_poll_with_cxn_raw<
+        'c,
+        E: sqlx::Executor<'c, Database = Postgres>,
+        T: for<'de> Deserialize<'de>,
+    >(
+        &self,
+        queue_name: &str,
+        vt: i32,
+        max_batch_size: i32,
+        poll_timeout: Option<std::time::Duration>,
+        poll_interval: Option<std::time::Duration>,
+        filter: Option<&str>,
+        executor: E,
+    ) -> Result<Option<Vec<Message<T>>>, PgmqError> {
         check_input(queue_name)?;
         let poll_timeout_s = poll_timeout.map_or(DEFAULT_POLL_TIMEOUT_S, |t| t.as_secs() as i32);
         let poll_interval_ms =
             poll_interval.map_or(DEFAULT_POLL_INTERVAL_MS, |i| i.as_millis() as i32);
         let result = sqlx::query!(
-            "SELECT * from pgmq.read_with_poll($1::text, $2, $3, $4, $5)",
+            "SELECT * from pgmq.read_with_poll($1::text, $2, $3, $4, $5, $6::json)",
             queue_name,
             vt,
             max_batch_size,
             poll_timeout_s,
-            poll_interval_ms
+            poll_interval_ms,
+            serde_json::Value::from(filter.unwrap_or("{}")),
         )
         .fetch_all(executor)
         .await;
