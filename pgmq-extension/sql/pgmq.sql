@@ -58,7 +58,7 @@ CREATE FUNCTION pgmq.read(
     queue_name TEXT,
     vt INTEGER,
     qty INTEGER,
-    filter JSON DEFAULT "{}"::json
+    filter JSON DEFAULT '{}'::json
 )
 RETURNS SETOF pgmq.message_record AS $$
 DECLARE
@@ -98,7 +98,7 @@ CREATE FUNCTION pgmq.read_with_poll(
     qty INTEGER,
     max_poll_seconds INTEGER DEFAULT 5,
     poll_interval_ms INTEGER DEFAULT 100,
-    filter JSON DEFAULT "{}"::json
+    filter JSON DEFAULT '{}'::json
 )
 RETURNS SETOF pgmq.message_record AS $$
 DECLARE
